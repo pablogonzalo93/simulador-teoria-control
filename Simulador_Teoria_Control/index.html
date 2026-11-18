@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <!-- Esta etiqueta es clave para que los celulares entiendan la escala -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Respuesta Transitoria y Lugar de Raíces - UTN FRT</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --utn-blue: #003b5c;
+            --utn-light-blue: #0077b6;
+            --utn-gray: #e0e0e0;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .header {
+            background: linear-gradient(135deg, var(--utn-blue), var(--utn-light-blue));
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        .header h1 { margin: 0; font-size: 24px; }
+        .header h2 { margin: 5px 0 0 0; font-size: 16px; font-weight: 400; color: var(--utn-gray); }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 15px;
+            border-bottom: 2px solid var(--utn-gray);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: #f8f9fa;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-weight: bold;
+            color: #666;
+            transition: all 0.3s;
+        }
+        .tab-btn.active {
+            color: var(--utn-blue);
+            border-bottom: 3px solid var(--utn-blue);
+            background: white;
+        }
+        
+        .container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .panel {
+            background: white; padding: 20px; border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex: 1 1 300px;
+            box-sizing: border-box;
+        }
+        .chart-panel { flex: 2 1 600px; display: flex; flex-direction: column; gap: 20px; }
+        .chart-container { position: relative; height: 320px; width: 100%; }
+        
+        .control-group { margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; }
+        .control-group label { font-weight: bold; display: flex; justify-content: space-between; }
+        input[type=range] { width: 100%; margin-top: 10px; cursor: pointer; }
+        
+        .calc-info {
+            background: #e3f2fd; padding: 10px; border-radius: 5px;
+            border-left: 4px solid var(--utn-blue); font-size: 14px; margin-top: 15px;
+        }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+        th, td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; }
+        th { background-color: #f8f9fa; color: var(--utn-blue); }
+        .highlight { font-weight: bold; color: #d32f2f; }
+
+        /* --- REGLAS RESPONSIVAS PARA CELULARES --- */
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .container { flex-direction: column; }
+            .panel, .chart-panel { flex: 1 1 100%; width: 100%; }
+            .chart-container { height: 260px; } /* Gráficos un poco más bajos para que no ocupen toda la pantalla */
+            .header { padding: 15px; }
+            .header h1 { font-size: 18px; }
+            .header h2 { font-size: 13px; }
+            .tab-btn { font-size: 12px; padding: 8px 4px; }
+            table { font-size: 12px; display: block; overflow-x: auto; } /* Permite deslizar la tabla si es muy ancha */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Tecnología para la Automatización (Teoría de Control)</h1>
+        <h2>Simulador de Respuesta Transitoria y Lugar de Raíces - UTN FRT</h2>
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <div class="tabs">
+                <button class="tab-btn active" id="btn-tab1" onclick="switchMode('direct')">Modo: Diseño (ζ y ωn)</button>
+                <button class="tab-btn" id="btn-tab2" onclick="switchMode('k_mode')">Modo: Ganancia (K)</button>
+            </div>
+            
+            <div id="mode-direct">
+                <div class="control-group">
+                    <label>Relación de Amortiguamiento (ζ) <span id="zeta-val">0.4</span></label>
+                    <input type="range" id="zeta-slider" min="0" max="2" step="0.01" value="0.4" oninput="updateSimulation()">
+                    <small style="color: #666;">Modula directamente el comportamiento.</small>
+                </div>
+                <div class="control-group">
+                    <label>Frec. Natural (ωn) <span id="wn-val">5.0</span></label>
+                    <input type="range" id="wn-slider" min="1" max="15" step="0.1" value="5.0" oninput="updateSimulation()">
+                    <small style="color: #666;">Distancia radial al origen (rad/seg).</small>
+                </div>
+            </div>
+
+            <div id="mode-k" style="display: none;">
+                <p style="font-size: 13px; margin-top:0;">Asumiendo planta $G(s) = K / [s(s+a)]$</p>
+                <div class="control-group" style="background: #fff3e0;">
+                    <label>Ganancia del Sistema (K) <span id="k-val">25</span></label>
+                    <input type="range" id="k-slider" min="1" max="100" step="1" value="25" oninput="updateSimulation()">
+                    <small style="color: #666;">¡Al subir K, ζ disminuye y el sistema oscila más!</small>
+                </div>
+                <div class="control-group">
+                    <label>Polo a lazo abierto (a) <span id="a-val">6</span></label>
+                    <input type="range" id="a-slider" min="1" max="20" step="0.5" value="6" oninput="updateSimulation()">
+                </div>
+                <div class="calc-info">
+                    <strong>Parámetros Derivados:</strong><br>
+                    ωn = √K = <span id="calc-wn">5.00</span><br>
+                    ζ = a / (2ωn) = <span id="calc-zeta">0.60</span>
+                </div>
+            </div>
+
+            <h3 style="color: var(--utn-blue); margin-top:20px; border-bottom: 2px solid #eee; padding-bottom:5px;">Parámetros Transitorios</h3>
+            <table id="results-table">
+                <tr><th>Parámetro</th><th>Valor Calculado</th></tr>
+                <tr><td>Tipo de Sistema</td><td id="sys-type" class="highlight">-</td></tr>
+                <tr><td>Frec. Amortiguada (ωd)</td><td id="res-wd">-</td></tr>
+                <tr><td>Tiempo Crecimiento (tc)</td><td id="res-tc">-</td></tr>
+                <tr><td>Tiempo Pico (tp)</td><td id="res-tp">-</td></tr>
+                <tr><td>Sobrepico Máx. (Sp%)</td><td id="res-sp">-</td></tr>
+                <tr><td>Tiempo Estab. 5% (ts5%)</td><td id="res-ts5">-</td></tr>
+            </table>
+        </div>
+
+        <div class="chart-panel">
+            <div class="panel">
+                <h3 style="color: var(--utn-blue); margin-top:0; text-align:center;">Plano Complejo (Movimiento de Polos)</h3>
+                <div class="chart-container">
+                    <canvas id="polesChart"></canvas>
+                </div>
+            </div>
+            <div class="panel">
+                <h3 style="color: var(--utn-blue); margin-top:0; text-align:center;">Respuesta al Escalón Unitario y(t)</h3>
+                <div class="chart-container">
+                    <canvas id="timeChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let polesChart, timeChart;
+        let currentMode = 'direct';
+
+        function switchMode(mode) {
+            currentMode = mode;
+            if (mode === 'direct') {
+                document.getElementById('mode-direct').style.display = 'block';
+                document.getElementById('mode-k').style.display = 'none';
+                document.getElementById('btn-tab1').classList.add('active');
+                document.getElementById('btn-tab2').classList.remove('active');
+            } else {
+                document.getElementById('mode-direct').style.display = 'none';
+                document.getElementById('mode-k').style.display = 'block';
+                document.getElementById('btn-tab1').classList.remove('active');
+                document.getElementById('btn-tab2').classList.add('active');
+            }
+            updateSimulation();
+        }
+
+        function updateSimulation() {
+            let zeta, wn;
+
+            if (currentMode === 'direct') {
+                zeta = parseFloat(document.getElementById('zeta-slider').value);
+                wn = parseFloat(document.getElementById('wn-slider').value);
+                document.getElementById('zeta-val').innerText = zeta.toFixed(2);
+                document.getElementById('wn-val').innerText = wn.toFixed(2);
+            } else {
+                let k = parseFloat(document.getElementById('k-slider').value);
+                let a = parseFloat(document.getElementById('a-slider').value);
+                document.getElementById('k-val').innerText = k;
+                document.getElementById('a-val').innerText = a;
+                
+                wn = Math.sqrt(k);
+                zeta = a / (2 * wn);
+                
+                document.getElementById('calc-wn').innerText = wn.toFixed(2);
+                document.getElementById('calc-zeta').innerText = zeta.toFixed(2);
+            }
+
+            let wd = 0, sigma = zeta * wn, tc = "-", tp = "-", sp = "-", ts5 = "-", sysType = "";
+
+            if (zeta < 1 && zeta > 0) {
+                sysType = "Subamortiguado";
+                wd = wn * Math.sqrt(1 - zeta*zeta);
+                let phi = Math.atan2(Math.sqrt(1 - zeta*zeta), zeta);
+                
+                tc = ((Math.PI - phi) / wd).toFixed(3) + " seg";
+                tp = (Math.PI / wd).toFixed(3) + " seg";
+                sp = (Math.exp((-zeta * Math.PI) / Math.sqrt(1 - zeta*zeta)) * 100).toFixed(2) + " %";
+                
+                if(zeta > 0.69) {
+                    ts5 = "No viable (Sp < 5%)";
+                } else {
+                    ts5 = (3 / sigma).toFixed(3) + " seg";
+                }
+            } else if (zeta === 1) {
+                sysType = "Críticamente Amortiguado";
+                sp = "0 %";
+                ts5 = (4.74 / wn).toFixed(3) + " seg"; 
+            } else if (zeta > 1) {
+                sysType = "Sobreamortiguado";
+                sp = "0 %";
+                ts5 = "Depende del polo dominante";
+            } else if (zeta === 0) {
+                sysType = "Marginalmente Estable (Oscilatorio)";
+                wd = wn;
+                sp = "100 % (Constante)";
+            }
+
+            document.getElementById('sys-type').innerText = sysType;
+            document.getElementById('res-wd').innerText = wd ? wd.toFixed(3) + " rad/s" : "-";
+            document.getElementById('res-tc').innerText = tc;
+            document.getElementById('res-tp').innerText = tp;
+            document.getElementById('res-sp').innerText = sp;
+            document.getElementById('res-ts5').innerText = ts5;
+
+            updateCharts(zeta, wn, wd, sigma);
+        }
+
+        function updateCharts(zeta, wn, wd, sigma) {
+            let polesData = [];
+            if (zeta < 1) {
+                polesData = [{x: -sigma, y: wd}, {x: -sigma, y: -wd}];
+            } else if (zeta === 1) {
+                polesData = [{x: -wn, y: 0}];
+            } else {
+                let p1 = -sigma + wn * Math.sqrt(zeta*zeta - 1);
+                let p2 = -sigma - wn * Math.sqrt(zeta*zeta - 1);
+                polesData = [{x: p1, y: 0}, {x: p2, y: 0}];
+            }
+
+            polesChart.data.datasets[0].data = polesData;
+            polesChart.update();
+
+            let t = [], y = [], envUp = [], envDown = [];
+            let maxTime = Math.max(8, 6 / (zeta * wn || 1));
+            
+            for (let i = 0; i <= 200; i++) {
+                let currT = (i / 200) * maxTime;
+                t.push(currT.toFixed(2));
+                
+                if (zeta < 1) {
+                    let phi = Math.atan2(Math.sqrt(1 - zeta*zeta), zeta);
+                    let val = 1 - (1/Math.sqrt(1 - zeta*zeta)) * Math.exp(-sigma * currT) * Math.sin(wd * currT + phi);
+                    y.push(val);
+                    
+                    let env = (1/Math.sqrt(1 - zeta*zeta)) * Math.exp(-sigma * currT);
+                    envUp.push(1 + env);
+                    envDown.push(1 - env);
+                } else if (zeta === 1) {
+                    y.push(1 - Math.exp(-wn * currT) * (1 + wn * currT));
+                    envUp.push(null); envDown.push(null);
+                } else {
+                    let s1 = -sigma + wn * Math.sqrt(zeta*zeta - 1);
+                    let s2 = -sigma - wn * Math.sqrt(zeta*zeta - 1);
+                    let val = 1 - (s2 * Math.exp(s1 * currT) - s1 * Math.exp(s2 * currT)) / (s2 - s1);
+                    y.push(val);
+                    envUp.push(null); envDown.push(null);
+                }
+            }
+
+            timeChart.data.labels = t;
+            timeChart.data.datasets[0].data = y;
+            timeChart.data.datasets[1].data = envUp;
+            timeChart.data.datasets[2].data = envDown;
+            timeChart.update();
+        }
+
+        window.onload = function() {
+            const ctxPoles = document.getElementById('polesChart').getContext('2d');
+            polesChart = new Chart(ctxPoles, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Polos (X)', backgroundColor: '#d32f2f', pointStyle: 'crossRot',
+                        pointRadius: 10, pointBorderWidth: 3, data: []
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Eje Real (σ)' }, min: -15, max: 2, grid: { color: (ctx) => ctx.tick.value === 0 ? '#000' : '#ddd' } },
+                        y: { title: { display: true, text: 'Eje Imag. (jω)' }, min: -10, max: 10, grid: { color: (ctx) => ctx.tick.value === 0 ? '#000' : '#ddd' } }
+                    }
+                }
+            });
+
+            const ctxTime = document.getElementById('timeChart').getContext('2d');
+            timeChart = new Chart(ctxTime, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'y(t)', borderColor: '#0077b6', borderWidth: 2, data: [], pointRadius: 0, fill: false },
+                        { label: 'Env. Sup.', borderColor: 'rgba(211, 47, 47, 0.4)', borderDash: [5, 5], data: [], pointRadius: 0, fill: false },
+                        { label: 'Env. Inf.', borderColor: 'rgba(211, 47, 47, 0.4)', borderDash: [5, 5], data: [], pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Tiempo (seg)' }, ticks: { maxTicksLimit: 10 } },
+                        y: { title: { display: true, text: 'Amplitud' }, min: 0, max: 2, grid: { color: (ctx) => ctx.tick.value === 1 ? '#003b5c' : '#ddd' } }
+                    }
+                }
+            });
+
+            updateSimulation();
+        };
+    </script>
+</body>
+</html>
